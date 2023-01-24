@@ -1,4 +1,4 @@
-/*
+/*c
   This file is part of the ArduinoBLE library.
   Copyright (c) 2018 Arduino SA. All rights reserved.
 
@@ -24,7 +24,23 @@
 #include "btct.h"
 #include "HCI.h"
 #include "bitDescriptions.h"
-// #define _BLE_TRACE_
+
+
+#if defined(ARDUINO_SAMD_MKRVIDOR4000)
+// check if a bitstream is already included
+#if __has_include(<VidorFPGA.h>)
+// yes, so use the existing VidorFPGA include
+#include <VidorFPGA.h>
+#else
+// otherwise, fallback to VidorPeripherals and it's bitstream
+#include <VidorPeripherals.h>
+#endif
+#define FPGA_NINA_RTS (64+8)
+#define FPGA_NINA_CTS (64+9)
+#endif
+
+
+#define _BLE_TRACE_
 
 
 #define HCI_COMMAND_PKT   0x01
@@ -111,7 +127,6 @@ HCIClass::~HCIClass()
 int HCIClass::begin()
 {
   _recvIndex = 0;
-
   return HCITransport.begin();
 }
 
@@ -130,6 +145,9 @@ void HCIClass::poll(unsigned long timeout)
 #ifdef ARDUINO_AVR_UNO_WIFI_REV2
   digitalWrite(NINA_RTS, LOW);
 #endif
+#ifdef ARDUINO_SAMD_MKRVIDOR4000
+  FPGA.digitalWrite(FPGA_NINA_CTS, LOW);
+#endif
 
   if (timeout) {
     HCITransport.wait(timeout);
@@ -137,7 +155,12 @@ void HCIClass::poll(unsigned long timeout)
 
   while (HCITransport.available()) {
     byte b = HCITransport.read();
-	
+#ifdef _BLE_TRACE_
+    char hexStr[4];
+    sprintf(hexStr, "%02x ", b);
+    Serial.print(hexStr);
+#endif
+
     if (_recvIndex >= sizeof(_recvBuffer)) {
         _recvIndex = 0;
         if (_debug) {
@@ -155,6 +178,9 @@ void HCIClass::poll(unsigned long timeout)
 #ifdef ARDUINO_AVR_UNO_WIFI_REV2
         digitalWrite(NINA_RTS, HIGH);
 #endif
+#ifdef ARDUINO_SAMD_MKRVIDOR4000
+        FPGA.digitalWrite(FPGA_NINA_CTS, HIGH);
+#endif
         int pktLen = _recvIndex - 1;
         _recvIndex = 0;
 
@@ -162,6 +188,9 @@ void HCIClass::poll(unsigned long timeout)
 
 #ifdef ARDUINO_AVR_UNO_WIFI_REV2
         digitalWrite(NINA_RTS, LOW);  
+#endif
+#ifdef ARDUINO_SAMD_MKRVIDOR4000
+        FPGA.digitalWrite(FPGA_NINA_CTS, LOW);
 #endif
       }
     } else if (_recvBuffer[0] == HCI_EVENT_PKT) {
@@ -172,6 +201,9 @@ void HCIClass::poll(unsigned long timeout)
 #ifdef ARDUINO_AVR_UNO_WIFI_REV2
         digitalWrite(NINA_RTS, HIGH);
 #endif
+#ifdef ARDUINO_SAMD_MKRVIDOR4000
+        FPGA.digitalWrite(FPGA_NINA_CTS, HIGH);
+#endif
         // received full event
         int pktLen = _recvIndex - 1;
         _recvIndex = 0;
@@ -180,6 +212,9 @@ void HCIClass::poll(unsigned long timeout)
 
 #ifdef ARDUINO_AVR_UNO_WIFI_REV2
         digitalWrite(NINA_RTS, LOW);
+#endif
+#ifdef ARDUINO_SAMD_MKRVIDOR4000
+        FPGA.digitalWrite(FPGA_NINA_CTS, LOW);
 #endif
       }
     } else {
@@ -193,6 +228,9 @@ void HCIClass::poll(unsigned long timeout)
 
 #ifdef ARDUINO_AVR_UNO_WIFI_REV2
   digitalWrite(NINA_RTS, HIGH);
+#endif
+#ifdef ARDUINO_SAMD_MKRVIDOR4000
+  FPGA.digitalWrite(FPGA_NINA_CTS, HIGH);
 #endif
 }
 
@@ -645,10 +683,8 @@ int HCIClass::sendAclPkt(uint16_t handle, uint8_t cid, uint8_t plen, void* data)
   }
   Serial.println(".");
 #endif
-
   _pendingPkt++;
   HCITransport.write(txBuffer, sizeof(aclHdr) + plen);
-
   return 0;
 }
 
@@ -692,19 +728,18 @@ int HCIClass::sendCommand(uint16_t opcode, uint8_t plen, void* parameters)
   for(int i=0; i< sizeof(pktHdr) + plen;i++){
     Serial.print(" 0x");
     Serial.print(txBuffer[i],HEX);
-    
   }
   Serial.println("");
 #endif
   HCITransport.write(txBuffer, sizeof(pktHdr) + plen);
-
+  
+  
   _cmdCompleteOpcode = 0xffff;
   _cmdCompleteStatus = -1;
 
-  for (unsigned long start = millis(); _cmdCompleteOpcode != opcode && millis() < (start + 1000);) {
+  for (unsigned long start = millis(); _cmdCompleteOpcode != opcode && millis() < (start + 10000);) {
     poll();
   }
-
   return _cmdCompleteStatus;
 }
 

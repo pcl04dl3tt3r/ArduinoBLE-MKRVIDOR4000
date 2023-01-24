@@ -21,7 +21,19 @@
 
 #include "HCIUartTransport.h"
 
-#if defined(ARDUINO_SAMD_MKRWIFI1010) || defined(ARDUINO_AVR_UNO_WIFI_REV2)
+#if defined(ARDUINO_SAMD_MKRVIDOR4000)
+// check if a bitstream is already included
+#if __has_include(<VidorFPGA.h>)
+// yes, so use the existing VidorFPGA include
+#include <VidorFPGA.h>
+#else
+// otherwise, fallback to VidorPeripherals and it's bitstream
+#include <VidorPeripherals.h>
+#endif
+#define FPGA_NINA_RTS (64+8)
+#define FPGA_NINA_CTS (64+9)
+#define SerialHCI SerialNina
+#elif defined(ARDUINO_SAMD_MKRWIFI1010) || defined(ARDUINO_AVR_UNO_WIFI_REV2)
 #define SerialHCI Serial2
 #elif defined(ARDUINO_SAMD_NANO_33_IOT) || defined(ARDUINO_NANO_RP2040_CONNECT)
 // SerialHCI is already defined in the variant
@@ -85,16 +97,24 @@ size_t HCIUartTransportClass::write(const uint8_t* data, size_t length)
   // wait while the CTS pin is low
   while (digitalRead(NINA_CTS) == HIGH);
 #endif
+#ifdef ARDUINO_SAMD_MKRVIDOR4000
+  // wait while the RTS pin is high
+  while (digitalRead(FPGA_NINA_RTS) == HIGH);
+#endif
 
   size_t result = _uart->write(data, length);
 
-  _uart->flush();
+#ifndef ARDUINO_SAMD_MKRVIDOR4000
+_uart->flush();
+#endif
 
   return result;
 }
 
-#if defined(ARDUINO_AVR_UNO_WIFI_REV2) || defined(ARDUINO_NANO_RP2040_CONNECT)
-HCIUartTransportClass HCIUartTransport(SerialHCI, 119600);
+#if defined(ARDUINO_SAMD_MKRVIDOR4000)
+HCIUartTransportClass HCIUartTransport(SerialHCI, 115200);
+#elif defined(ARDUINO_AVR_UNO_WIFI_REV2) || defined(ARDUINO_NANO_RP2040_CONNECT)
+HCIUartTransportClass HCIUartTransport(SerialHCI, 115200);
 #else
 HCIUartTransportClass HCIUartTransport(SerialHCI, 912600);
 #endif
