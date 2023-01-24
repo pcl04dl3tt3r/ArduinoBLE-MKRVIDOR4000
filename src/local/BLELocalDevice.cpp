@@ -22,8 +22,31 @@
 #include "utility/GAP.h"
 #include "utility/GATT.h"
 #include "utility/L2CAPSignaling.h"
+#include "pins_arduino.h"
+#include "WiFi.h"
 
 #include "BLELocalDevice.h"
+
+#if defined(ARDUINO_SAMD_MKRVIDOR4000)
+// check if a bitstream is already included
+#if __has_include(<VidorFPGA.h>)
+// yes, so use the existing VidorFPGA include
+#include <VidorFPGA.h>
+#else
+// otherwise, fallback to VidorPeripherals and it's bitstream
+#include <VidorPeripherals.h>
+#endif
+//#define NINA_RESETN   FPGA_SPIWIFI_RESET
+//#define NINA_GPIO0    FPGA_NINA_GPIO0
+//#define SPIWIFI_SS    FPGA_SPIWIFI_SS
+//#define SPIWIFI_ACK   FPGA_SPIWIFI_ACK
+#define FPGA_NINA_RTS (64+8)
+#define FPGA_NINA_CTS (64+9)
+#define FPGA_SPIWIFI_CS (64+11)
+//#define pinMode(pin, mode)       FPGA.pinMode(pin, mode)
+//#define digitalRead(pin)         FPGA.digitalRead(pin)
+//#define digitalWrite(pin, value) FPGA.digitalWrite(pin, value)
+#endif
 
 #if defined(ARDUINO_PORTENTA_H7_M4) || defined(ARDUINO_PORTENTA_H7_M7)
 #ifndef BT_REG_ON
@@ -46,6 +69,55 @@ BLELocalDevice::~BLELocalDevice()
 
 int BLELocalDevice::begin()
 {
+#if defined(ARDUINO_SAMD_MKRVIDOR4000)
+  while(millis()<5000);
+
+  // Let's start by initializing the FPGA
+  if (!FPGA.begin()) {
+    Serial.println("FPGA Initialization failed!");
+    while (1) {}
+  }
+  FPGA.printConfig();
+
+  FPGA.pinMode(FPGA_SPIWIFI_RESET, OUTPUT);
+  FPGA.digitalWrite(FPGA_SPIWIFI_RESET, LOW);
+  
+  delay(1000);
+  
+  if (!HCI.begin()) {
+    end();
+    return 0;
+  }
+
+  
+  FPGA.pinMode(FPGA_SPIWIFI_SS, OUTPUT);
+  FPGA.pinMode(FPGA_NINA_GPIO0, OUTPUT);
+  //FPGA.pinMode(FPGA_SPIWIFI_ACK, INPUT);
+  //FPGA.pinMode(FPGA_SPIWIFI_CS, 4);
+  FPGA.pinMode(FPGA_NINA_CTS, 4);
+  FPGA.pinMode(FPGA_NINA_RTS, INPUT);
+  delay(100);
+
+  // reset the NINA in BLE mode
+  //FPGA.digitalWrite(FPGA_SPIWIFI_CS, LOW);    // silent boot [deadly]
+  FPGA.digitalWrite(FPGA_NINA_CTS, HIGH);  // don't send yet
+  FPGA.digitalWrite(FPGA_NINA_GPIO0, HIGH);   // H:normal boot, L:factory boot
+  FPGA.digitalWrite(FPGA_SPIWIFI_SS, LOW);    // BLE mode
+  FPGA.digitalWrite(FPGA_SPIWIFI_RESET, HIGH);
+  delay(10);
+  FPGA.digitalWrite(FPGA_SPIWIFI_RESET, LOW);
+  delay(10);
+  FPGA.digitalWrite(FPGA_SPIWIFI_RESET, HIGH);
+  delay(750);
+  FPGA.digitalWrite(FPGA_NINA_GPIO0, LOW); 
+  FPGA.pinMode(FPGA_NINA_GPIO0, INPUT);
+  delay(4000);
+  FPGA.digitalWrite(FPGA_NINA_CTS, LOW);  // now send
+  Serial.println("flushing SerialEx");
+  SerialNina.flush();
+  FPGA.digitalWrite(FPGA_NINA_CTS, HIGH);  // no more for now
+#endif
+
 #if defined(ARDUINO_SAMD_MKRWIFI1010) || defined(ARDUINO_AVR_UNO_WIFI_REV2) || defined(ARDUINO_SAMD_NANO_33_IOT) || defined(ARDUINO_NANO_RP2040_CONNECT)
   // reset the NINA in BLE mode
   pinMode(SPIWIFI_SS, OUTPUT);
@@ -84,16 +156,16 @@ int BLELocalDevice::begin()
   pinMode(NINA_CTS, INPUT);
 #endif
 
+#ifndef ARDUINO_SAMD_MKRVIDOR4000
   if (!HCI.begin()) {
     end();
     return 0;
   }
+#endif
 
-  delay(100);
 
   if (HCI.reset() != 0) {
     end();
-
     return 0;
   }
 
@@ -107,6 +179,17 @@ int BLELocalDevice::begin()
     end();
     return 0;
   }
+
+  Serial.print("hciVer: ");
+  Serial.println(hciVer);
+  Serial.print("hciRev: ");
+  Serial.println(hciRev);
+  Serial.print("lmpVer: ");
+  Serial.println(lmpVer);
+  Serial.print("manufacturer: ");
+  Serial.println(manufacturer);
+  Serial.print("lmpSubVer: ");
+  Serial.println(lmpSubVer);
 
   if (HCI.setEventMask(0x3FFFFFFFFFFFFFFF) != 0) {
     end();
@@ -188,8 +271,9 @@ void BLELocalDevice::end()
   GATT.end();
 
   HCI.end();
-
-#if defined(ARDUINO_SAMD_MKRWIFI1010) || defined(ARDUINO_AVR_UNO_WIFI_REV2)
+#if defined(ARDUINO_SAMD_MKRVIDOR4000)
+  FPGA.digitalWrite(FPGA_SPIWIFI_RESET, 0);
+#elif defined(ARDUINO_SAMD_MKRWIFI1010) || defined(ARDUINO_AVR_UNO_WIFI_REV2)
   // disable the NINA
   digitalWrite(NINA_RESETN, HIGH);
 #elif defined(ARDUINO_SAMD_NANO_33_IOT) || defined(ARDUINO_NANO_RP2040_CONNECT)
