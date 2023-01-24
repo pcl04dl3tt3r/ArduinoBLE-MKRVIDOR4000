@@ -1,12 +1,14 @@
-# ArduinoBLE
+# ArduinoBLE - with MKR Vidor 4000 Support
 
 [![Compile Examples Status](https://github.com/arduino-libraries/ArduinoBLE/workflows/Compile%20Examples/badge.svg)](https://github.com/arduino-libraries/ArduinoBLE/actions?workflow=Compile+Examples) [![Spell Check Status](https://github.com/arduino-libraries/ArduinoBLE/workflows/Spell%20Check/badge.svg)](https://github.com/arduino-libraries/ArduinoBLE/actions?workflow=Spell+Check)
 
-Enables Bluetooth® Low Energy connectivity on the Arduino MKR WiFi 1010, Arduino UNO WiFi Rev.2, Arduino Nano 33 IoT, and Arduino Nano 33 BLE.
+Enables Bluetooth® Low Energy connectivity on the Arduino MKR WiFi 1010, MKR Vidor 4000, Arduino UNO WiFi Rev.2, Arduino Nano 33 IoT, and Arduino Nano 33 BLE.
 
 This library supports creating a Bluetooth® Low Energy peripheral & central mode.
 
 For the Arduino MKR WiFi 1010, Arduino UNO WiFi Rev.2, and Arduino Nano 33 IoT boards, it requires the NINA module to be running [Arduino NINA-W102 firmware](https://github.com/arduino/nina-fw) v1.2.0 or later.
+
+For the MKR Vidor 4000 it requires pcl04dl3tt3r/nina-fw-MKRVIDOR4000 (https://github.com/pcl04dl3tt3r/nina-fw-MKRVIDOR4000) v1.5.0 or later.
 
 
 For more information about this library please visit us at:
