@@ -69,7 +69,11 @@ public:
 
   virtual int rssi();
 
+  void initiatePairing();
+  bool paired();
   bool connect();
+  bool connect(uint8_t LTK[16], uint16_t EDIV, uint8_t bondRandom[8]); // re-connnect using stored bonding info
+  bool reConnect(); // re-connnect using bonding info in mem
   bool discoverAttributes();
   bool discoverService(const char* serviceUuid);
 
@@ -92,6 +96,8 @@ public:
   BLECharacteristic characteristic(int index) const;
   BLECharacteristic characteristic(const char * uuid) const;
   BLECharacteristic characteristic(const char * uuid, int index) const;
+
+  int getBondingInformation(uint8_t LTK[16], uint16_t *EDIV, uint8_t bondRandom[8]);
 
 protected:
   friend class ATTClass;

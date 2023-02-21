@@ -18,6 +18,7 @@
 */
 
 #include "utility/ATT.h"
+#include "utility/L2CAPSignaling.h"
 #include "utility/BLEUuid.h"
 #include "utility/HCI.h"
 
@@ -259,9 +260,57 @@ int BLEDevice::rssi()
   return _rssi;
 }
 
+void BLEDevice::initiatePairing()
+{
+  uint16_t handle = ATT.connectionHandle(_addressType, _address);
+
+  L2CAPSignaling.initiatePairing(handle);
+}
+
+bool BLEDevice::paired()
+{
+  uint16_t handle = ATT.connectionHandle(_addressType, _address);
+  return ATT.paired(handle);
+}
+
 bool BLEDevice::connect()
 {
   return ATT.connect(_addressType, _address);
+}
+
+bool BLEDevice::connect(uint8_t LTK[16], uint16_t EDIV, uint8_t bondRandom[8])
+{
+  if(ATT.connect(_addressType, _address)){
+    uint16_t handle = ATT.connectionHandle(_addressType, _address);
+    if(HCI.leStartEncryption(handle,bondRandom,EDIV,LTK)==1){
+      return true;
+    }
+  }
+  return false;
+}
+
+bool BLEDevice::reConnect()
+{
+  ATT.disconnect(_addressType, _address);
+  for(int i = 0; i < 5000; i++){
+    if(!ATT.connected(_addressType, _address)){break;}
+    delay(100);
+  }
+
+  if(ATT.connect(_addressType, _address)){
+    delay(100);
+    uint8_t LTK[16];
+    uint16_t EDIV;
+    uint8_t bondRandom[8];
+    uint16_t handle = ATT.connectionHandle(_addressType, _address);
+    if(ATT.getPeerBondingInfo(handle,LTK,&EDIV,bondRandom)==1){
+      if(HCI.leStartEncryption(handle,bondRandom,EDIV,LTK)==1){
+        while(!ATT.paired(handle)){delay(100);}
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 bool BLEDevice::discoverAttributes()
@@ -574,3 +623,14 @@ bool BLEDevice::discovered()
   return (_advertisementTypeMask & 0x18) != 0;
 }
 
+int BLEDevice::getBondingInformation(uint8_t LTK[16], uint16_t *EDIV, uint8_t bondRandom[8]){
+  uint16_t handle = ATT.connectionHandle(_addressType, _address);
+  return ATT.getPeerBondingInfo(handle,LTK,EDIV,bondRandom);
+}
+
+/*int BLEDevice::setBondingInformation(uint8_t LTK[16], uint16_t EDIV, uint8_t bondRandom[8]){
+  memcpy(_LTK,LTK,16);
+  _EDIV = EDIV;
+  memcpy(_bondRandom,bondRandom,8);
+  return 1;
+}*/
