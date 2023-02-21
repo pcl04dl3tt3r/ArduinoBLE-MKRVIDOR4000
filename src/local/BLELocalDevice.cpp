@@ -77,7 +77,6 @@ int BLELocalDevice::begin()
     Serial.println("FPGA Initialization failed!");
     while (1) {}
   }
-  FPGA.printConfig();
 
   FPGA.pinMode(FPGA_SPIWIFI_RESET, OUTPUT);
   FPGA.digitalWrite(FPGA_SPIWIFI_RESET, LOW);
@@ -179,17 +178,6 @@ int BLELocalDevice::begin()
     end();
     return 0;
   }
-
-  Serial.print("hciVer: ");
-  Serial.println(hciVer);
-  Serial.print("hciRev: ");
-  Serial.println(hciRev);
-  Serial.print("lmpVer: ");
-  Serial.println(lmpVer);
-  Serial.print("manufacturer: ");
-  Serial.println(manufacturer);
-  Serial.print("lmpSubVer: ");
-  Serial.println(lmpSubVer);
 
   if (HCI.setEventMask(0x3FFFFFFFFFFFFFFF) != 0) {
     end();
