@@ -15,16 +15,21 @@ public:
     int f6(uint8_t W[], uint8_t N1[],uint8_t N2[],uint8_t R[], uint8_t IOCap[], uint8_t A1[], uint8_t A2[], uint8_t Ex[]);
     int g2(uint8_t U[], uint8_t V[], uint8_t X[], uint8_t Y[], uint8_t out[4]);
     int ah(uint8_t k[16], uint8_t r[3], uint8_t result[3]);
+    int c1(uint8_t k[16], uint8_t r[16], uint8_t pres[7], uint8_t preq[7], uint8_t iat,
+			uint8_t ia[6], uint8_t rat, uint8_t ra[6], uint8_t res[16]);
+    int s1(uint8_t k[16], uint8_t r1[16], uint8_t r2[16], uint8_t res[16]);
     void test();
     void testF5();
     void testF6();
     void testAh();
     void testg2();
+
 private:
     int AES_128(uint8_t key[], uint8_t data_in[], uint8_t data_out[]);
     void leftshift_onebit(unsigned char *input,unsigned char *output);
-    void xor_128(unsigned char *a, unsigned char *b, unsigned char *out);
-    void padding ( unsigned char *lastb, unsigned char *pad, int length );
+    void xor_128(uint8_t *a, uint8_t *b, uint8_t *out);
+    void padding(unsigned char *lastb, unsigned char *pad, int length);
+    void reverse_bytes(uint8_t *src, uint8_t *dst, uint16_t len);
 };
 extern BluetoothCryptoToolbox btct;
 #endif

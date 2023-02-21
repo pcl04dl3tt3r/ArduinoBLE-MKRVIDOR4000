@@ -47,6 +47,11 @@
 #define IOCAP_NO_INPUT_NO_OUTPUT   0x03
 #define IOCAP_KEYBOARD_DISPLAY     0x04
 
+#define PAIRING_METHOD_JUSTWORKS  0x00
+#define PAIRING_METHOD_NUMERICAL  0x01
+#define PAIRING_METHOD_PASSKEY    0x02  //not implemented
+#define PAIRING_METHOD_OOB        0x03  //not implemented
+
 
 #define LOCAL_AUTHREQ 0b00101101
 // #define LOCAL_IOCAP   IOCAP_DISPLAY_ONLY // will use JustWorks pairing
@@ -55,6 +60,8 @@ class L2CAPSignalingClass {
 public:
   L2CAPSignalingClass();
   virtual ~L2CAPSignalingClass();
+
+  virtual void initiatePairing(uint16_t handle);
 
   virtual void addConnection(uint16_t handle, uint8_t role, uint8_t peerBdaddrType,
                     uint8_t peerBdaddr[6], uint16_t interval,
@@ -89,6 +96,8 @@ private:
   uint16_t _maxInterval;
   uint16_t _supervisionTimeout;
   uint8_t _pairing_enabled;
+  uint8_t _pairingMethod;
+  bool _local_is_initiator;
 };
 
 extern L2CAPSignalingClass& L2CAPSignaling;

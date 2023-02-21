@@ -109,6 +109,10 @@ public:
   uint8_t peerIRK[16];
   /// This is just a random number... Not sure it has use unless privacy mode is active.
   uint8_t localIRK[16] = {0x54,0x83,0x63,0x7c,0xc5,0x1e,0xf7,0xec,0x32,0xdd,0xad,0x51,0x89,0x4b,0x9e,0x07};
+  virtual int setPeerLTK(uint16_t connectionHandle, uint8_t LTK[16]);
+  virtual int setPeerEDIV(uint16_t connectionHandle, uint16_t EDIV);
+  virtual int setPeerBondRandom(uint16_t connectionHandle, uint8_t bondRandom[8]);
+  virtual int getPeerBondingInfo(uint16_t connectionHandle, uint8_t LTK[16], uint16_t *EDIV, uint8_t bondRandom[8]);
 private:
   virtual void error(uint16_t connectionHandle, uint8_t dlen, uint8_t data[]);
   virtual void mtuReq(uint16_t connectionHandle, uint8_t dlen, uint8_t data[]);
@@ -154,6 +158,9 @@ private:
     BLERemoteDevice* device;
     uint8_t encryption;
     uint8_t IOCap[3];
+    uint8_t LTK[16];       //bonding info
+    uint16_t EDIV;         //bonding info
+    uint8_t bondRandom[8]; //bonding info
   } _peers[ATT_MAX_PEERS];
 
   volatile bool _cnf;

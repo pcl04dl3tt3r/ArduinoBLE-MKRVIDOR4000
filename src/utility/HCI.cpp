@@ -40,7 +40,7 @@
 #endif
 
 
-#define _BLE_TRACE_
+//#define _BLE_TRACE_
 
 
 #define HCI_COMMAND_PKT   0x01
@@ -136,7 +136,7 @@ void HCIClass::end()
 }
 
 void HCIClass::poll()
-{
+{ 
   poll(0);
 }
 
@@ -1479,6 +1479,22 @@ int HCIClass::leRand(uint8_t rand[]){
   if(res == 0){
     memcpy(rand,_cmdResponse, 8); /// backwards but it's a random number
   }
+  return res;
+}
+int HCIClass::leStartEncryption(uint16_t handle, uint8_t rand[8], uint16_t eDiv, uint8_t k[16]){
+  struct __attribute__ ((packed)) LeStartEncryptionCommand
+  {
+    uint16_t handle;
+    uint8_t rand[8];
+    uint16_t eDiv;
+    uint8_t LTK[16];
+  } leStartEncryptionCommand = {0,0,0,0};
+  leStartEncryptionCommand.handle=handle;
+  memcpy(leStartEncryptionCommand.rand,rand,8);
+  leStartEncryptionCommand.eDiv=eDiv;
+  memcpy(leStartEncryptionCommand.LTK,k,16);
+  
+  int res = sendCommand(OGF_LE_CTL << 10 | LE_COMMAND::START_ENCRYPTION, 28, &leStartEncryptionCommand);
   return res;
 }
 int HCIClass::getLTK(uint8_t* address, uint8_t* LTK){

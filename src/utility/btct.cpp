@@ -119,7 +119,7 @@ int BluetoothCryptoToolbox::f6(uint8_t W[], uint8_t N1[],uint8_t N2[],uint8_t R[
     return 1;
 }
 // AES_CMAC from RFC
-int BluetoothCryptoToolbox::ah(uint8_t k[16], uint8_t r[3], uint8_t* result)
+int BluetoothCryptoToolbox::ah(uint8_t k[16], uint8_t r[3], uint8_t result[3])
 {
     uint8_t r_[16];
     int i=0;
@@ -132,6 +132,99 @@ int BluetoothCryptoToolbox::ah(uint8_t k[16], uint8_t r[3], uint8_t* result)
     }
     return 1;
 }
+
+// function c1 from RFC
+int BluetoothCryptoToolbox::c1(uint8_t k[16], uint8_t r[16], uint8_t pres[7], uint8_t preq[7], uint8_t iat,
+			uint8_t ia[6], uint8_t rat, uint8_t ra[6], uint8_t res[16])
+{
+	uint8_t p1[16], p1R[16], p2[16], p2R[16], kR[16], rR[16], presR[6], preqR[6], iaR[6], raR[6], resR[16];
+
+	/* p1 = pres || preq || _rat || _iat */	
+    reverse_bytes(pres,presR,7);
+    reverse_bytes(preq,preqR,7);
+    //p1[0] = iat;
+    //p1[1] = rat;
+    //memcpy(p1 + 2, preq, 7);
+    //memcpy(p1 + 9, pres, 7);
+    memcpy(p1, presR, 7);
+    memcpy(p1 + 7, preqR, 7);
+    p1[14] = rat;
+    p1[15] = iat;
+
+	/* p2 = padding || ia || ra */
+    reverse_bytes(ia,iaR,6);
+    reverse_bytes(ra,raR,6);
+    //memcpy(p2, ra, 6);
+    //memcpy(p2 + 6, ia, 6);
+    //memset(p2 + 12, 0, 4);
+    memset(p2, 0, 4);
+    memcpy(p2 + 4, iaR, 6);
+    memcpy(p2 + 10, raR, 6);
+
+	/* res = r XOR p1 */
+    reverse_bytes(r,rR,16);
+	xor_128(rR, p1, res);
+
+    reverse_bytes(k, kR, 16);
+
+	/* res = e(k, res) */
+	if (AES_128(k, res, res) == 0) {
+        Serial.println("AES Failed");
+	    return 0;
+    }
+
+	/* res = res XOR p2 */
+	xor_128(res, p2, res);
+
+	/* res = e(k, res) */
+    if (AES_128(k, res, resR) == 0) {
+        Serial.println("AES Failed");
+	    return 0;
+    }
+    else {
+        reverse_bytes(resR, res, 16);
+        return 1;
+    }
+	
+}
+
+int BluetoothCryptoToolbox::s1(uint8_t k[16], uint8_t r1[16], uint8_t r2[16], uint8_t res[16]){
+    uint8_t kRev[16], r1Rev[16], r2Rev[16], resRev[16], r_[16];
+    reverse_bytes(k,kRev,16);
+    reverse_bytes(r1,r1Rev,16);
+    reverse_bytes(r2,r2Rev,16);
+
+    /* The most significant 64-bits of r1 are discarded to generate r1’ and the most
+    significant 64-bits of r2 are discarded to generate r2’.
+    For example if the 128-bit value r1 is
+    0x000F0E0D0C0B0A091122334455667788 then r1’ is 0x1122334455667788.
+    If the 128-bit value r2 is 0x010203040506070899AABBCCDDEEFF00 then r2’
+    is 0x99AABBCCDDEEFF00.
+    r1’ is concatenated with r2’ to generate r’ which is used as the 128-bit input
+    parameter plaintextData to security function e:
+    r’ = r1’ || r2’
+    The least significant octet of r2’ becomes the least significant octet of r’ and the
+    most significant octet of r1’ becomes the most significant octet of r’.
+    For example, if the 64-bit value r1’ is 0x1122334455667788 and r2’ is
+    0x99AABBCCDDEEFF00 then r’ is
+    0x112233445566778899AABBCCDDEEFF00. */
+    memcpy(r_, r1Rev + 8, 8);
+    memcpy(r_ + 8, r2Rev + 8, 8);
+
+    /* The output of the key generation function s1 is:
+    s1(k, r1, r2) = e(k, r’)
+    The 128-bit output of the security function e is used as the result of key
+    generation function s1 */
+    if (AES_128(kRev, r_, resRev) == 0) {
+        Serial.println("AES Failed");
+	    return 0;
+    }
+    else {
+        reverse_bytes(resRev, res, 16);
+        return 1;
+    }
+}
+
 void BluetoothCryptoToolbox::testAh()
 {
     uint8_t irk[16] = {0xec,0x02,0x34,0xa3,0x57,0xc8,0xad,0x05,0x34,0x10,0x10,0xa6,0x0a,0x39,0x7d,0x9b};         
@@ -271,7 +364,8 @@ void BluetoothCryptoToolbox::generateSubkey(uint8_t* key, uint8_t* K1, uint8_t* 
     return;
 }
 // Use BLE AES function - restart bluetooth if crash
-int BluetoothCryptoToolbox::AES_128(uint8_t* key, uint8_t* data_in, uint8_t* data_out){
+
+int BluetoothCryptoToolbox::AES_128(uint8_t key[], uint8_t data_in[], uint8_t data_out[]){
     uint8_t status = 0;
     int n = 0;
     int tries = 30;
@@ -290,6 +384,39 @@ int BluetoothCryptoToolbox::AES_128(uint8_t* key, uint8_t* data_in, uint8_t* dat
     }
     return 1;
 }
+
+// From RFC
+void BluetoothCryptoToolbox::leftshift_onebit(unsigned char *input,unsigned char *output)
+{
+    int i;
+    unsigned char overflow = 0;
+
+    for ( i=15; i>=0; i-- ) {
+        output[i] = input[i] << 1;
+        output[i] |= overflow;
+        overflow = (input[i] & 0x80)?1:0;
+    }
+    return;
+}
+// From RFC
+void BluetoothCryptoToolbox::xor_128(uint8_t *a, uint8_t *b, uint8_t *out)
+{
+    int i;
+    for (i=0;i<16; i++)
+    {
+        out[i] = a[i] ^ b[i];
+    }
+    Serial.println("");
+}
+
+void BluetoothCryptoToolbox::reverse_bytes(uint8_t *src, uint8_t *dst, uint16_t len)
+{
+	int i;
+
+	for (i = 0; i < len; i++)
+		dst[len - 1 - i] = src[i];
+}
+
 // Tests AES CMAC
 #ifdef _BLE_TRACE_
 void BluetoothCryptoToolbox::test(){
@@ -365,26 +492,5 @@ void BluetoothCryptoToolbox::test(){
     Serial.println(".");
 }
 #endif
-// From RFC
-void BluetoothCryptoToolbox::leftshift_onebit(unsigned char *input,unsigned char *output)
-{
-    int i;
-    unsigned char overflow = 0;
 
-    for ( i=15; i>=0; i-- ) {
-        output[i] = input[i] << 1;
-        output[i] |= overflow;
-        overflow = (input[i] & 0x80)?1:0;
-    }
-    return;
-}
-// From RFC
-void BluetoothCryptoToolbox::xor_128(unsigned char *a, unsigned char *b, unsigned char *out)
-{
-    int i;
-    for (i=0;i<16; i++)
-    {
-        out[i] = a[i] ^ b[i];
-    }
-}
 BluetoothCryptoToolbox btct;

@@ -26,18 +26,69 @@
 #define CONNECTION_PARAMETER_UPDATE_REQUEST  0x12
 #define CONNECTION_PARAMETER_UPDATE_RESPONSE 0x13
 
-//#define _BLE_TRACE_
+// #define _BLE_TRACE_
 
 L2CAPSignalingClass::L2CAPSignalingClass() :
   _minInterval(0),
   _maxInterval(0),
   _supervisionTimeout(0),
-  _pairing_enabled(1)
+  _pairing_enabled(1),
+  _pairingMethod(PAIRING_METHOD_JUSTWORKS),
+  _local_is_initiator(false)
 {
 }
 
 L2CAPSignalingClass::~L2CAPSignalingClass()
 {
+}
+
+// this version only supports JustWorks pairing with an LE peripheral
+void L2CAPSignalingClass::initiatePairing(uint16_t handle)
+{
+  HCI.iat = 0x00;
+  HCI.readBdAddr(HCI.ia);
+  uint8_t resolvedADDR[6] = {0,0,0,0,0,0};
+  if(ATT.getPeerResolvedAddress(handle,resolvedADDR) == 1){
+    Serial.println("GOT RESOLVED ADDRESS");
+    HCI.rat = 0x01;
+    memcpy(HCI.ra,resolvedADDR,6);
+  }
+  else{
+    //uint8_t peerADDR[7];
+    //ATT.getPeerAddrWithType(handle,peerADDR);
+    //HCI.rat = peerADDR[0];
+    uint8_t peerADDR[6];
+    HCI.rat = 0x00;
+    ATT.getPeerAddr(handle,peerADDR);
+    memcpy(HCI.ra,peerADDR,6);
+  }
+
+#ifdef _BLE_TRACE_
+  Serial.print("resolvedADDR (FWIW): ");
+  btct.printBytes(resolvedADDR,6);
+  Serial.print("iat: ");
+  Serial.println(HCI.iat);
+  Serial.print("ia: ");
+  btct.printBytes(HCI.ia,6);
+  Serial.print("rat: ");
+  Serial.println(HCI.rat);
+  Serial.print("ra: ");
+  btct.printBytes(HCI.ra,6);
+#endif
+
+  struct __attribute__ ((packed)) L2CAPPairingRequest {
+    uint8_t code;
+    uint8_t ioCapability;
+    uint8_t oobDataFlag;
+    uint8_t authReq;
+    uint8_t maxEncSize;
+    uint8_t initiatorKeyDistribution;
+    uint8_t responderKeyDistribution;
+  } request = { CONNECTION_PAIRING_REQUEST, HCI.localIOCap(), 0x00, HCI.localAuthreq().getOctet(), 16, 0x01, 0x01 }; //LTK only
+
+  memcpy(HCI.preq,&request,sizeof(request));
+  HCI.sendAclPkt(handle, SECURITY_CID, sizeof(request), &request);
+  _local_is_initiator = true;
 }
 
 void L2CAPSignalingClass::addConnection(uint16_t handle, uint8_t role, uint8_t /*peerBdaddrType*/,
@@ -161,6 +212,8 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
       Serial.print(req.MITM()?"MITM, ":"no MITM, ");
       Serial.print(req.SC()?"SC, ":"no SC, ");
 #endif
+
+      _pairingMethod = PAIRING_METHOD_NUMERICAL;  // TODO: implement pairing method based on IOCapabilites
     
       uint8_t peerIOCap[3];
       peerIOCap[0] = pairingRequest->authReq;
@@ -193,74 +246,244 @@ void L2CAPSignalingClass::handleSecurityData(uint16_t connectionHandle, uint8_t 
   }
   else if (code == CONNECTION_PAIRING_RANDOM)
   {
-    struct __attribute__ ((packed)) PairingRandom {
-      uint8_t Na[16];
-    } *pairingRandom = (PairingRandom*)l2capSignalingHdr->data;
-    for(int i=0; i<16; i++){
-      HCI.Na[15-i] = pairingRandom->Na[i];
+    if(_local_is_initiator && _pairingMethod == PAIRING_METHOD_JUSTWORKS) // handle pairing random received for local initiaor using JustWorks
+    {
+      if(dlen != 17)
+      {
+        Serial.println("Error: Invalid pairing random length.");
+        return;
+      }
+      memcpy(HCI.sRandom,data+1,16);
+
+#ifdef _BLE_TRACE_
+      Serial.print("Srandom: ");
+      btct.printBytes(HCI.sRandom, 16);
+#endif
+
+      uint8_t sConfirmCompare[16];
+      btct.c1(HCI.TK,HCI.sRandom,HCI.pres,HCI.preq,HCI.iat,HCI.ia,HCI.rat,HCI.ra,sConfirmCompare);
+
+#ifdef _BLE_TRACE_
+      Serial.print("Sconfirm Compare: ");
+      btct.printBytes(sConfirmCompare, 16);
+#endif
+
+      if(memcmp(sConfirmCompare,HCI.sConfirm,16) != 0){
+        // Pairing not enabled
+        uint8_t ret[2] = {CONNECTION_PAIRING_FAILED, 0x04}; // Confirm Value Failed (reason code 0x04)
+        HCI.sendAclPkt(connectionHandle, SECURITY_CID, sizeof(ret), ret);
+        return;
+      }
+      btct.s1(HCI.TK,HCI.sRandom,HCI.mRandom,HCI.STK);  // calculate STK
+      uint8_t rand[8] = {0,0,0,0,0,0,0,0};
+      HCI.leStartEncryption(connectionHandle,rand,0,HCI.STK);
+      //ATT.setPeerEncryption(connectionHandle, PEER_ENCRYPTION::REQUESTED_ENCRYPTION);
     }
+    else if(!_local_is_initiator && _pairingMethod == PAIRING_METHOD_NUMERICAL) // handle pairing random received for peer initiator using numerical comparison
+    {
+      struct __attribute__ ((packed)) PairingRandom {
+        uint8_t Na[16];
+      } *pairingRandom = (PairingRandom*)l2capSignalingHdr->data;
+      for(int i=0; i<16; i++){
+        HCI.Na[15-i] = pairingRandom->Na[i];
+      }
 #ifdef _BLE_TRACE_
-    Serial.println("[Info] Pairing random.");
+      Serial.println("[Info] Pairing random.");
 #endif
-    struct __attribute__ ((packed)) PairingResponse {
-      uint8_t code;
-      uint8_t Nb[16];
-    } response = { CONNECTION_PAIRING_RANDOM, 0};
-    for(int i=0; i< 16; i++) response.Nb[15-i] = HCI.Nb[i];
+      struct __attribute__ ((packed)) PairingResponse {
+        uint8_t code;
+        uint8_t Nb[16];
+      } response = { CONNECTION_PAIRING_RANDOM, 0};
+      for(int i=0; i< 16; i++) response.Nb[15-i] = HCI.Nb[i];
 
-    HCI.sendAclPkt(connectionHandle, SECURITY_CID, sizeof(response), &response);
+      HCI.sendAclPkt(connectionHandle, SECURITY_CID, sizeof(response), &response);
 
-    // We now have all needed for compare value
-    uint8_t g2Result[4];
-    uint8_t U[32];
-    uint8_t V[32];
-    
-    for(int i=0; i<32; i++){
-      U[31-i] = HCI.remotePublicKeyBuffer[i];
-      V[31-i] = HCI.localPublicKeyBuffer[i];
-    }
+      // We now have all needed for compare value
+      uint8_t g2Result[4];
+      uint8_t U[32];
+      uint8_t V[32];
+      
+      for(int i=0; i<32; i++){
+        U[31-i] = HCI.remotePublicKeyBuffer[i];
+        V[31-i] = HCI.localPublicKeyBuffer[i];
+      }
 
-    btct.g2(U,V,HCI.Na,HCI.Nb, g2Result);
-    uint32_t result = 0;
-    for(int i=0; i<4; i++) result += g2Result[3-i] << 8*i;
+      btct.g2(U,V,HCI.Na,HCI.Nb, g2Result);
+      uint32_t result = 0;
+      for(int i=0; i<4; i++) result += g2Result[3-i] << 8*i;
 
 #ifdef _BLE_TRACE_
-    Serial.print("U      : ");
-    btct.printBytes(U,32);
-    Serial.print("V      : ");
-    btct.printBytes(V,32);
-    Serial.print("X      : ");
-    btct.printBytes(X,16);
-    Serial.print("Y      : ");
-    btct.printBytes(Y,16);
-    Serial.print("g2res  : ");
-    btct.printBytes(g2Result,4);
-    Serial.print("Result : ");
-    Serial.println(result);
+      Serial.print("U      : ");
+      btct.printBytes(U,32);
+      Serial.print("V      : ");
+      btct.printBytes(V,32);
+  //    Serial.print("X      : ");
+  //    btct.printBytes(X,16);
+  //    Serial.print("Y      : ");
+  //    btct.printBytes(Y,16);
+      Serial.print("g2res  : ");
+      btct.printBytes(g2Result,4);
+      Serial.print("Result : ");
+      Serial.println(result);
 #endif
 
-    if(HCI._displayCode!=0){
-      HCI._displayCode(result%1000000);
-    }
-    if(HCI._binaryConfirmPairing!=0){
-      if(!HCI._binaryConfirmPairing()){
+      if(HCI._displayCode!=0){
+        HCI._displayCode(result%1000000);
+      }
+      if(HCI._binaryConfirmPairing!=0){
+        if(!HCI._binaryConfirmPairing()){
 #ifdef _BLE_TRACE_
-        Serial.println("User rejection");
+          Serial.println("User rejection");
 #endif
-        uint8_t rejection[2];
-        rejection[0] = CONNECTION_PAIRING_FAILED;
-        rejection[1] = 0x0C; // Numeric comparison failed
-        HCI.sendAclPkt(connectionHandle, SECURITY_CID, 2, rejection);
-        ATT.setPeerEncryption(connectionHandle, PEER_ENCRYPTION::NO_ENCRYPTION);
-      }else{
+          uint8_t rejection[2];
+          rejection[0] = CONNECTION_PAIRING_FAILED;
+          rejection[1] = 0x0C; // Numeric comparison failed
+          HCI.sendAclPkt(connectionHandle, SECURITY_CID, 2, rejection);
+          ATT.setPeerEncryption(connectionHandle, PEER_ENCRYPTION::NO_ENCRYPTION);
+        }else{
 #ifdef _BLE_TRACE_
-        Serial.println("User did confirm");
+          Serial.println("User did confirm");
 #endif
+        }
       }
     }
   }
   else if (code == CONNECTION_PAIRING_RESPONSE)
   {
+    //TODO: handle response codes -- assuming no iocaps/justworks
+    if(_local_is_initiator && _pairingMethod == PAIRING_METHOD_JUSTWORKS)
+    {
+      if(dlen != 7)
+      {
+        Serial.println("Error: Invalid pairing response length.");
+        return;
+      }
+      memcpy(HCI.pres,data,7);
+
+      //zero out TK, using JustWorks
+      memset(HCI.TK, 0, sizeof(HCI.TK));
+
+      
+      HCI.leRand(HCI.mRandom);
+      HCI.leRand(&HCI.mRandom[8]);
+
+#ifdef _BLE_TRACE_
+      Serial.print("mRandom: ");
+      btct.printBytes(HCI.mRandom, 16);
+#endif
+
+      struct __attribute__ ((packed)) PairingConfirm
+      {
+        uint8_t code;
+        uint8_t mCon[16];
+      } pairingConfirm = {CONNECTION_PAIRING_CONFIRM,0};
+      
+      btct.c1(HCI.TK,HCI.mRandom,HCI.pres,HCI.preq,HCI.iat,HCI.ia,HCI.rat,HCI.ra,HCI.mConfirm);
+      memcpy(pairingConfirm.mCon,HCI.mConfirm,16);
+
+#ifdef _BLE_TRACE_
+      Serial.print("Mconfirm: ");
+      btct.printBytes(pairingConfirm.mCon, 16);
+#endif
+
+      // Send Pairing confirm response
+      HCI.sendAclPkt(connectionHandle, SECURITY_CID, sizeof(pairingConfirm), &pairingConfirm);
+    }
+  }
+  else if (code == CONNECTION_PAIRING_CONFIRM)
+  {
+    if(_local_is_initiator && _pairingMethod == PAIRING_METHOD_JUSTWORKS)
+    {
+      if(dlen != 17)
+      {
+        Serial.println("Error: Invalid pairing confirm length.");
+        return;
+      }
+      memcpy(HCI.sConfirm,data+1,16);
+
+#ifdef _BLE_TRACE_
+      Serial.print("Sconfirm: ");
+      btct.printBytes(HCI.sConfirm, 16);
+#endif
+
+      struct __attribute__ ((packed)) PairingRandom
+      {
+        uint8_t code;
+        uint8_t mRand[16];
+      } pairingRandom = {CONNECTION_PAIRING_RANDOM,0};
+      memcpy(pairingRandom.mRand,HCI.mRandom,16);
+      
+
+#ifdef _BLE_TRACE_
+      Serial.print("Mrandom: ");
+      btct.printBytes(pairingRandom.mRand, 16);
+#endif
+
+      // Send Pairing confirm random
+      HCI.sendAclPkt(connectionHandle, SECURITY_CID, sizeof(pairingRandom), &pairingRandom);
+    }
+  }
+  else if(code == CONNECTION_ENCRYPTION_INFORMATION)
+  {
+      if(dlen != 17)
+      {
+        Serial.println("Error: Received invalid encryption info (peer LTK) length.");
+        return;
+      }
+      uint8_t LTK[16];
+      memcpy(LTK,data+1,16);
+      //TODO: actually store LTK in NVRAM 
+      ATT.setPeerLTK(connectionHandle,LTK);
+      //we're not actually storing the LTK anywhere permanently, so print it:
+      Serial.print("LTK Received: ");
+      btct.printBytes(LTK,16);
+  }
+  else if(code == CONNECTION_MASTER_IDENTIFICATION)
+  {
+      if(dlen != 11)
+      {
+        Serial.println("Error: Received invalid master identification (peer EDIV and random) length.");
+        return;
+      }
+      uint16_t EDIV;
+      uint8_t randValue[16];
+      memcpy(&EDIV,data+1,2);
+      memcpy(randValue,data+3,8);
+      //TODO: actually store EDIV and random in NVRAM and update state
+      ATT.setPeerEDIV(connectionHandle,EDIV);
+      ATT.setPeerBondRandom(connectionHandle,randValue);
+      //we're not actually storing these anywhere permanently, so print it:
+      Serial.print("EDIV and random value received. EDIV:");
+      Serial.print(EDIV,HEX);
+      Serial.print("  rand:");
+      btct.printBytes(randValue,8);
+
+      //TODO: complete the key distribution from initiator (local) to respnder elsewhere
+      //let's just generate a pretend LTK, EDIV, and rand and send it now to complete the bonding protocol:
+      struct __attribute__ ((packed)) EncryptionInformation
+      {
+        uint8_t code;
+        uint8_t localLTK[16];
+      } encryptionInformation = {CONNECTION_ENCRYPTION_INFORMATION,0};
+      HCI.leRand(encryptionInformation.localLTK);
+      HCI.leRand(&encryptionInformation.localLTK[8]);
+      HCI.sendAclPkt(connectionHandle, SECURITY_CID, sizeof(encryptionInformation), &encryptionInformation);
+
+      //encryption info must be received and processed first, wait to send master ID
+      delay(100);
+
+      //TODO: store LTK and EDIV for actual bonding
+      struct __attribute__ ((packed)) MasterIdentification
+      {
+        uint8_t code;
+        uint16_t localEDIV;
+        uint8_t localRand[8];
+      } masterIdentification = {CONNECTION_MASTER_IDENTIFICATION,0,0};
+      HCI.leRand(masterIdentification.localRand);
+      memcpy(&masterIdentification.localEDIV,masterIdentification.localRand,2);
+      HCI.leRand(masterIdentification.localRand);
+      HCI.sendAclPkt(connectionHandle, SECURITY_CID, sizeof(masterIdentification), &masterIdentification);
+      //TODO: store LTK and EDIV for future bonded connection
   }
   else if(code == CONNECTION_PAIRING_FAILED)
   {

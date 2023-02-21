@@ -39,8 +39,8 @@ public:
   virtual size_t write(const uint8_t* data, size_t length);
 
 private:
-  HardwareSerial* _uart;
   unsigned long _baudrate;
+  HardwareSerial* _uart;
 };
 
 #endif

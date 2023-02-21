@@ -34,6 +34,7 @@
 enum LE_COMMAND {
   ENCRYPT                      = 0x0017,
   RANDOM                       = 0x0018,
+  START_ENCRYPTION             = 0x0019,
   LONG_TERM_KEY_REPLY          = 0x001A,
   LONG_TERM_KEY_NEGATIVE_REPLY = 0x001B,
   READ_LOCAL_P256              = 0x0025,
@@ -96,6 +97,7 @@ public:
   virtual int leEncrypt(uint8_t* Key, uint8_t* plaintext, uint8_t* status, uint8_t* ciphertext);
   // Generate a 64 bit random number
   virtual int leRand(uint8_t rand[]);
+  virtual int leStartEncryption(uint16_t handle, uint8_t rand[8], uint16_t eDiv, uint8_t k[16]);
   virtual AuthReq localAuthreq();
   virtual uint8_t localIOCap();
 
@@ -127,6 +129,18 @@ public:
   uint8_t DHKey[32];
   uint8_t localAddr[6];
   uint8_t LTK[16];
+  uint8_t mRandom[16];    // used for LE Legacy pairing
+  uint8_t mConfirm[16];   //
+  uint8_t sRandom[16];    //
+  uint8_t sConfirm[16];   //
+  uint8_t TK[16];         //
+  uint8_t preq[7];        //
+  uint8_t pres[7];        //
+  uint8_t iat;            //
+  uint8_t ia[6];          //
+  uint8_t rat;            //
+  uint8_t ra[6];          //
+  uint8_t STK[16];        //
   virtual int getLTK(uint8_t* address, uint8_t* LTK);
   virtual int storeLTK(uint8_t* address, uint8_t* LTK);
   virtual int storeIRK(uint8_t* address, uint8_t* IRK);

@@ -1938,6 +1938,52 @@ int ATTClass::getPeerResolvedAddress(uint16_t connectionHandle, uint8_t resolved
   return 0;
 }
 
+int ATTClass::setPeerLTK(uint16_t connectionHandle, uint8_t LTK[16]){
+  for(int i=0; i<ATT_MAX_PEERS; i++){
+    if(_peers[i].connectionHandle != connectionHandle){
+      continue;
+    }
+    memcpy(_peers[i].LTK, LTK, 16);
+    return 1;
+  }
+  return 0;
+}
+
+int ATTClass::setPeerEDIV(uint16_t connectionHandle, uint16_t EDIV){
+  for(int i=0; i<ATT_MAX_PEERS; i++){
+    if(_peers[i].connectionHandle != connectionHandle){
+      continue;
+    }
+    _peers[i].EDIV = EDIV;
+    return 1;
+  }
+  return 0;
+}
+int ATTClass::setPeerBondRandom(uint16_t connectionHandle, uint8_t bondRandom[8]){
+  for(int i=0; i<ATT_MAX_PEERS; i++){
+    if(_peers[i].connectionHandle != connectionHandle){
+      continue;
+    }
+    memcpy(_peers[i].bondRandom, bondRandom, 8);
+    return 1;
+  }
+  return 0;
+}
+
+int ATTClass::getPeerBondingInfo(uint16_t connectionHandle, uint8_t LTK[16], uint16_t *EDIV, uint8_t bondRandom[8]){
+  for(int i=0; i<ATT_MAX_PEERS; i++){
+    if(_peers[i].connectionHandle != connectionHandle){
+      continue;
+    }
+    memcpy(LTK, _peers[i].LTK, 16);
+    *EDIV = _peers[i].EDIV;
+    memcpy(bondRandom, _peers[i].bondRandom, 8);
+    return 1;
+  }
+  return 0;
+}
+
+
 #if !defined(FAKE_ATT)
 ATTClass ATTObj;
 ATTClass& ATT = ATTObj;
